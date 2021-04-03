@@ -40,11 +40,27 @@ along with obdgpslogger.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "obdsim.h"
 #include "simport.h"
+#include "tcpsimport.h"
 #include "datasource.h"
 #include "mainloop.h"
 
-void main_loop(OBDSimPort *sp, struct simsettings *ss) {
+void prefixCRLF(OBDSimPort *simulator, struct simsettings *settings) {
+	const char *carriageReturn = "\r";
+	const char *carriageReturnLineFeed = "\r\n";
 
+	TCPSimPort* simulatorWithTCP = dynamic_cast<TCPSimPort*>(simulator);
+
+	if (simulatorWithTCP == nullptr) {
+		// The library https://github.com/lemberg/obd2-swift-lib crashes if `CRLF`
+		// appears before the response to an `AT DP` command.
+		// Hence, the `CRLF` is only prefixed iff this `OBDMSimPort` instance is not
+		// a `TCPSimPort` instance.
+
+		simulator->writeData(settings->e_linefeed ? carriageReturnLineFeed : carriageReturn);
+	}
+}
+
+void main_loop(OBDSimPort *sp, struct simsettings *ss) {
 	char *line; // Single line from the other end of the device
 	char previousline[1024] = "GARBAGE"; // Blank lines mean re-run previous command
 
@@ -166,7 +182,8 @@ void main_loop(OBDSimPort *sp, struct simsettings *ss) {
 				snprintf(response, sizeof(response), "%s", ELM_QUERY_PROMPT);
 			}
 
-			sp->writeData(ss->e_linefeed?newline_crlf:newline_cr);
+			prefixCRLF(sp, ss);
+
 			sp->writeData(response);
 			sp->writeData(ss->e_linefeed?newline_crlf:newline_cr);
 			sp->writeData(ELM_PROMPT);
@@ -186,7 +203,7 @@ void main_loop(OBDSimPort *sp, struct simsettings *ss) {
 		// Part of accumulating time is finding out how many ECUs have replied
 		int ecu_replycount = 0;
 
-		sp->writeData(ss->e_linefeed?newline_crlf:newline_cr);
+		prefixCRLF(sp, ss);
 
 		// There has *got* to be a better way to do the following complete mess
 
@@ -691,4 +708,3 @@ int parse_ATcmd(struct simsettings *ss, OBDSimPort *sp, char *line, char *respon
 
 	return command_recognised;
 }
-
